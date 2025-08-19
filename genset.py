@@ -39,4 +39,4 @@ def generate_shape_images(num_images=10, width=512, height=512, output_dir='./da
     print(f'{num_images} images avec formes générées dans {output_dir} et {to_dir}.')
 
 if __name__ == '__main__':
-    generate_shape_images(num_images=10)
+    generate_shape_images(num_images=50)
