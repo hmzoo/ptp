@@ -201,29 +201,61 @@ def main():
 		if choix.lower() == 'n':
 			print("Entraînement à partir de zéro.")
 		else:
-			print(f"Chargement du modèle {last_ckpt}")
-			checkpoint = torch.load(last_ckpt, map_location=device)
-			
-			# Compatibilité avec les anciens formats de checkpoint
-			if 'model_state_dict' in checkpoint:
-				# Nouveau format (checkpoint complet)
-				model.load_state_dict(checkpoint['model_state_dict'])
-				optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
-				start_epoch = checkpoint['epoch']
-				best_loss = checkpoint.get('loss', float('inf'))
-				print(f"Reprise à l'époque {start_epoch + 1}/1000")
-				print(f"Loss précédente : {best_loss:.4f}")
-			else:
-				# Ancien format (seulement state_dict)
-				model.load_state_dict(checkpoint)
-				# Extraire le numéro d'époque du nom de fichier si possible
-				epoch_match = re.search(r'epoch[_]?(\d+)', last_ckpt)
-				if epoch_match:
-					start_epoch = int(epoch_match.group(1))
-					print(f"Ancien format détecté. Reprise à l'époque {start_epoch + 1}/1000")
+			try:
+				print(f"Chargement du modèle {last_ckpt}")
+				checkpoint = torch.load(last_ckpt, map_location=device)
+				
+				# Compatibilité avec les anciens formats de checkpoint
+				if 'model_state_dict' in checkpoint:
+					# Nouveau format (checkpoint complet)
+					model.load_state_dict(checkpoint['model_state_dict'])
+					optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
+					start_epoch = checkpoint['epoch']
+					best_loss = checkpoint.get('loss', float('inf'))
+					print(f"Reprise à l'époque {start_epoch + 1}/10000")
+					print(f"Loss précédente : {best_loss:.4f}")
 				else:
-					print("Ancien format détecté. Reprise à l'époque 1/1000")
-				print("Note: L'état de l'optimizer sera réinitialisé.")
+					# Ancien format (seulement state_dict)
+					model.load_state_dict(checkpoint)
+					# Extraire le numéro d'époque du nom de fichier si possible
+					epoch_match = re.search(r'epoch[_]?(\d+)', last_ckpt)
+					if epoch_match:
+						start_epoch = int(epoch_match.group(1))
+						print(f"Ancien format détecté. Reprise à l'époque {start_epoch + 1}/10000")
+					else:
+						print("Ancien format détecté. Reprise à l'époque 1/10000")
+					print("Note: L'état de l'optimizer sera réinitialisé.")
+			except Exception as e:
+				print(f"Erreur lors du chargement du checkpoint {last_ckpt}: {e}")
+				print("Le fichier semble corrompu. Suppression et recherche du checkpoint précédent...")
+				os.remove(last_ckpt)
+				# Rechercher le checkpoint précédent
+				checkpoints = sorted(glob.glob(os.path.join(model_dir, 'checkpoint_epoch_*.pth')))
+				if checkpoints:
+					last_ckpt = checkpoints[-1]
+					print(f"Tentative avec le checkpoint précédent : {last_ckpt}")
+					try:
+						checkpoint = torch.load(last_ckpt, map_location=device)
+						if 'model_state_dict' in checkpoint:
+							model.load_state_dict(checkpoint['model_state_dict'])
+							optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
+							start_epoch = checkpoint['epoch']
+							best_loss = checkpoint.get('loss', float('inf'))
+							print(f"Reprise à l'époque {start_epoch + 1}/10000")
+							print(f"Loss précédente : {best_loss:.4f}")
+						else:
+							model.load_state_dict(checkpoint)
+							epoch_match = re.search(r'epoch[_]?(\d+)', last_ckpt)
+							if epoch_match:
+								start_epoch = int(epoch_match.group(1))
+								print(f"Ancien format détecté. Reprise à l'époque {start_epoch + 1}/10000")
+							else:
+								print("Ancien format détecté. Reprise à l'époque 1/10000")
+					except Exception as e2:
+						print(f"Erreur également avec {last_ckpt}: {e2}")
+						print("Démarrage d'un nouvel entraînement.")
+				else:
+					print("Aucun checkpoint valide trouvé. Démarrage d'un nouvel entraînement.")
 	else:
 		print("Aucun modèle trouvé, entraînement à partir de zéro.")
 
@@ -282,7 +314,7 @@ def main():
 	mse_criterion = nn.MSELoss()
 
 
-	epochs = 1000  # ajustez selon vos besoins
+	epochs = 10000  # ajustez selon vos besoins
 	inter_dir = './dataset/inter'
 	# Nettoyer le dossier inter avant de commencer
 	if os.path.exists(inter_dir):
@@ -355,6 +387,14 @@ def main():
 			ckpt_path = os.path.join(model_dir, f'checkpoint_epoch_{epoch+1:04d}.pth')
 			torch.save(checkpoint, ckpt_path)
 			print(f"Checkpoint sauvegardé sous '{ckpt_path}'.")
+			
+			# Garder seulement les 3 derniers checkpoints
+			checkpoints = sorted(glob.glob(os.path.join(model_dir, 'checkpoint_epoch_*.pth')))
+			if len(checkpoints) > 3:
+				old_checkpoints = checkpoints[:-3]  # Tous sauf les 3 derniers
+				for old_ckpt in old_checkpoints:
+					os.remove(old_ckpt)
+					print(f"Ancien checkpoint supprimé : {old_ckpt}")
 
 	# Sauvegarde finale dans 'modeles'
 	final_checkpoint = {
